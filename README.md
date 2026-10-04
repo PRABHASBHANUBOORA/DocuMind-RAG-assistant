@@ -83,21 +83,3 @@ secrets (`GROQ_API_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`) in the app's
 
 Python · LangChain · FAISS · HuggingFace Embeddings · Groq (`openai/gpt-oss-120b`)
 · Streamlit · Supabase · Docker
-
-See `PROJECT_DEEP_DIVE.md` for a full explanation of *why* each piece of
-this stack was chosen, and a set of likely interview questions about it.
-
-## Suggested resume project bullets
-
-> **DocuMind — Multi-PDF RAG Q&A Assistant (Python, LangChain, FAISS, Groq)**
-> - Built a Retrieval-Augmented Generation application enabling grounded,
->   streamed natural-language Q&A over multiple PDF documents, using
->   LangChain for chunking/orchestration, HuggingFace embeddings, and a
->   FAISS vector store with MMR retrieval for diverse multi-document search.
-> - Designed source-labeled prompting to prevent cross-document hallucination
->   when answering questions spanning multiple uploaded files.
-> - Implemented dynamic, conversation-aware follow-up question generation
->   and persisted user feedback (thumbs up/down) to a Supabase database via
->   its REST API.
-> - Containerized the application with Docker and deployed it on Streamlit
->   Community Cloud with secrets-based credential management.
