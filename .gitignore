@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 .streamlit/secrets.toml
 SETUP_GUIDE.md
+CONCEPTS_EXPLAINED.md

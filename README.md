@@ -29,9 +29,13 @@ followed up with smart, conversation-aware suggested questions.
    LangChain's `RecursiveCharacterTextSplitter`, preserving page metadata.
 3. **Embed** — Each chunk is converted into a vector using a free, local
    HuggingFace sentence-transformer (`all-MiniLM-L6-v2`) — no API cost.
-4. **Store & retrieve** — Vectors are indexed in **FAISS** and retrieved
-   with **MMR search** (diverse top-k, not just nearest-neighbor) so
-   answers that span multiple documents pull context from all of them.
+4. **Store & retrieve** — Each chunk's embedding is kept in memory, grouped
+   by source document. At query time, each document's chunks are ranked
+   independently by **cosine similarity** to the question, so every
+   uploaded document is guaranteed to contribute to the answer — a large
+   document can never crowd out a smaller one. (An earlier version used a
+   shared FAISS index with MMR search; see `PROJECT_DEEP_DIVE.md` for why
+   that was replaced after an intermittent retrieval bug.)
 5. **Generate** — Retrieved chunks are labeled by source document and page,
    then passed to **Groq's `openai/gpt-oss-120b`** model via LangChain,
    with explicit instructions never to mix facts across documents.
@@ -81,5 +85,26 @@ secrets (`GROQ_API_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`) in the app's
 
 ## Tech stack
 
-Python · LangChain · FAISS · HuggingFace Embeddings · Groq (`openai/gpt-oss-120b`)
+Python · LangChain · HuggingFace Embeddings · NumPy · Groq (`openai/gpt-oss-120b`)
 · Streamlit · Supabase · Docker
+
+See `PROJECT_DEEP_DIVE.md` for a full explanation of *why* each piece of
+this stack was chosen, and a set of likely interview questions about it.
+
+## Suggested resume project bullets
+
+> **DocuMind — Multi-PDF RAG Q&A Assistant (Python, LangChain, Groq)**
+> - Built a Retrieval-Augmented Generation application enabling grounded,
+>   streamed natural-language Q&A over multiple PDF documents, using
+>   LangChain for chunking/orchestration and HuggingFace embeddings.
+> - Diagnosed an intermittent, silent retrieval bug in a FAISS-based vector
+>   search filter and replaced it with a deterministic per-document cosine
+>   similarity ranking, guaranteeing every uploaded document contributes to
+>   every answer regardless of relative document size.
+> - Designed source-labeled prompting to prevent cross-document hallucination
+>   when answering questions spanning multiple uploaded files.
+> - Implemented dynamic, conversation-aware follow-up question generation
+>   and persisted user feedback (thumbs up/down) to a Supabase database via
+>   its REST API.
+> - Containerized the application with Docker and deployed it on Streamlit
+>   Community Cloud with secrets-based credential management.

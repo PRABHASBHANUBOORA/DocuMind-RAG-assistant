@@ -10,7 +10,7 @@ Stack:
 - PyPDF             -> PDF text extraction
 - LangChain         -> chunking
 - HuggingFace       -> local, free sentence-embeddings (no API key needed)
-- FAISS             -> vector store for semantic search
+- NumPy             -> per-document cosine-similarity ranking (no vector DB)
 - Groq              -> free, fast LLM inference for answers + suggestions
 """
 
@@ -19,10 +19,10 @@ os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
 
 import re
 import requests
+import numpy as np
 import streamlit as st
 from pypdf import PdfReader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_groq import ChatGroq
 from langchain_core.documents import Document
@@ -154,7 +154,7 @@ if supabase_url:
             supabase_url = supabase_url[: -len(suffix)]
 
 # ---------- Session state ----------
-for key, default in [("vectorstore", None), ("messages", []), ("doc_names", []),
+for key, default in [("doc_chunks", None), ("embeddings", None), ("messages", []), ("doc_names", []),
                       ("followups", []), ("feedback", {}), ("stats", None)]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -180,7 +180,7 @@ with st.sidebar:
             st.rerun()
 
     st.markdown(
-        '<div class="sidebar-footer">Built with LangChain, FAISS, HuggingFace embeddings, and Groq.</div>',
+        '<div class="sidebar-footer">Built with LangChain, HuggingFace embeddings, and Groq.</div>',
         unsafe_allow_html=True,
     )
 
@@ -200,12 +200,40 @@ def get_llm():
     return ChatGroq(groq_api_key=groq_api_key, model_name="openai/gpt-oss-120b")
 
 
+def cosine_similarity(a, b):
+    a, b = np.array(a), np.array(b)
+    denom = (np.linalg.norm(a) * np.linalg.norm(b)) + 1e-8
+    return float(np.dot(a, b) / denom)
+
+
 def retrieve(question):
-    retriever = st.session_state.vectorstore.as_retriever(
-        search_type="mmr",
-        search_kwargs={"k": 8, "fetch_k": 20, "lambda_mult": 0.5},
-    )
-    return retriever.invoke(question)
+    """Rank each uploaded document's own chunks by similarity to the
+    question, independently per document, then combine the results.
+
+    This replaced an earlier approach using FAISS's built-in metadata
+    `filter` on a single shared index, which intermittently returned zero
+    results for a specific document on some calls and worked fine on
+    others — a silent, hard-to-diagnose failure. Doing the similarity
+    ranking ourselves with plain cosine similarity is slightly more code,
+    but fully deterministic and transparent: every document's chunks are
+    guaranteed to be considered every single time, with no hidden
+    filtering step that can fail quietly.
+    """
+    doc_chunks = st.session_state.doc_chunks
+    embeddings = st.session_state.embeddings
+    if not doc_chunks or embeddings is None:
+        return []
+
+    question_vector = embeddings.embed_query(question)
+    doc_names = st.session_state.doc_names or list(doc_chunks.keys())
+    per_doc_k = max(3, 12 // max(len(doc_names), 1))
+
+    results = []
+    for name in doc_names:
+        pairs = doc_chunks.get(name, [])
+        ranked = sorted(pairs, key=lambda cv: cosine_similarity(question_vector, cv[1]), reverse=True)
+        results.extend(chunk for chunk, _ in ranked[:per_doc_k])
+    return results
 
 
 def generate_followups(question, answer):
@@ -369,8 +397,13 @@ if build_button:
             chunks = splitter.split_documents(raw_docs)
             st.write("🧠 Creating embeddings (first run downloads a small model)...")
             embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-            st.write("🗂️ Building the search index...")
-            st.session_state.vectorstore = FAISS.from_documents(chunks, embeddings)
+            st.write("🗂️ Indexing chunks per document...")
+            chunk_vectors = embeddings.embed_documents([c.page_content for c in chunks])
+            doc_chunks = {}
+            for chunk, vector in zip(chunks, chunk_vectors):
+                doc_chunks.setdefault(chunk.metadata["source"], []).append((chunk, vector))
+            st.session_state.doc_chunks = doc_chunks
+            st.session_state.embeddings = embeddings
             st.session_state.messages = []
             st.session_state.followups = []
             st.session_state.feedback = {}
@@ -383,7 +416,7 @@ if build_button:
             status.update(label=f"Indexed {len(uploaded_files)} document(s) ✅", state="complete", expanded=False)
 
 # ---------- Main area ----------
-if st.session_state.vectorstore is None:
+if st.session_state.doc_chunks is None:
     st.markdown("""
     <div class="empty-state">
         <div class="big-emoji">🗂️</div>
@@ -449,7 +482,7 @@ else:
 question = st.chat_input("Ask a question about your documents...")
 
 if question:
-    if st.session_state.vectorstore is None:
+    if st.session_state.doc_chunks is None:
         st.warning("Upload and process at least one PDF first.")
     elif not groq_api_key:
         st.warning("A Groq API key is needed to answer questions.")
